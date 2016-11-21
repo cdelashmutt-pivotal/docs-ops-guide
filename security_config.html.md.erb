@@ -114,7 +114,7 @@ The following table summarizes SSL/TLS termination options in PCF and provides g
   </td>
   <td><b>Load balancer only</b>.<br/><br/>Select the <b>Forward unencrypted traffic to Elastic Runtime Router</b>
   </td>
-  <td><a href="unencrypted">Procedure: Configuring SSL/TLS Termination at the Load Balancer</a>
+  <td><a href="#unencrypted">Procedure: Configuring SSL/TLS Termination at the Load Balancer</a>
   </td>
   </tr>
     <tr>
@@ -200,7 +200,7 @@ Perform the following steps to configure SSL termination on the Gorouter and loa
     <p class='note'><strong>Note</strong>: If the load balancer accepts unencrypted requests, it <strong>must</strong> provide the <code>X-Forwarded-Proto</code> header. Conversely, if the load balancer cannot be configured to send the <code>X-Forwarded-Proto</code> header, it should not accept unencrypted requests. Otherwise, applications and platform system components that require encrypted client requests will accept unencrypted requests when they should not accept them.</p>
 
 
-### <a id="haproxy"></a>Procedure: Configuring Termination at Load Balancer Only
+### <a id="unencrypted"></a>Procedure: Configuring Termination at Load Balancer Only
 
 In PCF, perform the following steps to configure SSL termination on the load balancer only:
 
