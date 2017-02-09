@@ -15,17 +15,21 @@ Pivotal recommends that operators experiment with different combinations of metr
 
 ## <a id='overview'></a>Overview
 
-To set up PCF monitoring, you configure PCF and your monitoring platform as follows.
+As a prerequisite to PCF monitoring, you need an account with a monitoring platform such as [Datadog](https://www.datadoghq.com/) or [OpenTDSB](http://opentsdb.net/).
 
-* In PCF, you install a [nozzle](../loggregator/architecture.html#nozzles) that extracts key metrics from the Firehose and sends it to a monitoring platform, such as [Datadog](https://www.datadoghq.com/) or [OpenTDSB](http://opentsdb.net/).
+To set up PCF monitoring, you then configure PCF and your monitoring platform as follows:
 
-* In your monitoring platform, you customize:
-  - A dashboard that lets you check and diagnose system health, and
-  - Alerts that generate communications regarding attention-worthy conditions.
+* In PCF:
+	- Install a [nozzle](../loggregator/architecture.html#nozzles) that extracts BOSH and CF metrics from the Firehose and sends them to the monitoring platform.
+	- Configure your build pipeline, if you have one, to send its custom metrics to the monitoring platform.
+
+* In your monitoring platform:
+  - Customize a dashboard that lets you check and diagnose system health.
+  - Create alerts that generate communications regarding attention-worthy conditions.
 
 ## <a id='sources'></a>Metrics Sources
 
-In PCF, the Loggregator [Firehose](../loggregator/architecture.html#firehose)  endpoint streams metrics and logs aggregated from all Elastic Runtime component VMs, both system components and hosts. These metrics come from three sources: the BOSH health monitor, Cloud Foundry components, and custom metrics such as smoke tests. All of them
+In PCF, the Loggregator [Firehose](../loggregator/architecture.html#firehose) endpoint streams metrics and logs aggregated from all Elastic Runtime component VMs, both system components and hosts. These metrics come from three sources: the BOSH health monitor, Cloud Foundry components, and custom metrics such as smoke tests.
 
 ### <a id='bosh'></a> BOSH Health Monitor
 
@@ -60,18 +64,77 @@ Component metrics that are often useful to monitor include:
 * `rep.RepBulkSyncDuration`
 * `route_emitter.RouteEmitterSyncDuration`
 
-### <a id='smoke-tests'></a> Smoke Tests
+It may also be useful to monitor some IaaS-specific component metrics.
 
-The most important metrics for system health monitoring are smoke tests. These custom metrics are specifically designed to gauge system health. 
+### <a id='smoke-tests'></a> Smoke Tests and Other Custom Metrics
 
+Many deployments use a continuous integration (CI) tool such as [Concourse](http://concourse.ci) to automate updates and maintenance. Operators typically configure these pipelines to run _smoke tests_, which are functional unit and integration tests on all major system components. This testing produces custom smoke test metrics that quantify system health.
 
-## <a id=' '></a>Extracting Metrics from the Firehose
+Smoke tests are the most valuable metrics overall for monitoring a PCF deployment, but operators can create other custom metrics monitoring healthbased on multi-component test results for . An example is average outbound latency between components.
 
+## <a id='send'></a>Send Metrics to a Monitoring Platform
 
+To send metrics to a monitoring platform, you configure your deployment in two places: you create a nozzle for the BOSH and CF component metrics, and you configure your build pipeline to send the custom metrics. This split reflects different paths that metrics take depending on their source.
 
+### <a id='nozzle'></a>Create a Nozzle for BOSH and CF Metrics
 
-## <a id=''></a>Monitoring Platforms
+Metrics originate from the Metron agents on their source components, then travel through Dopplers to the Traffic Controller. The Traffic Controller aggregates the metrics system-wide from the BOSH Health Monitor and CF Components, along with log messages from the same VMs, and emits them all from its Firehose endpoint.
 
+To include BOSH Health Monitor metrics, you must have a BOSH HM Forwarder job running on the VM that runs the BOSH Health Monitor and its Metron agent.
 
+To send BOSH and CF metrics to your logging platform you need to deploy a nozzle](../loggregator/architecture.html#nozzles) process that takes the Firehose output, ignores the logs, and sends the metrics to your monitoring platform.
+
+See an example nozzle for sending metrics to Datadog [here](https://github.com/cloudfoundry-incubator/datadog-firehose-nozzle). You configure the Datadog account credentials, API location, and other fields and options in the `config/datadog-firehose-nozzle.json` file.
+
+### <a id='concourse'></a>Configure Concourse for Custom Metrics
+
+Concourse sends custom metrics to the monitoring platform directly. Concourse VMs do not run Metron agents, and the Firehose does not carry custom metrics from pipeline builds.
+
+To send custom metrics from Concourse to a monitoring platform, you include your platform endpoint and account information in your pipeline configuration. See the [Metrics]
+(https://concourse.ci/metrics.html) topic in the Concourse documentation for how to emit Concourse metrics to a monitoring platform.
+
+## <a id='config-mon'></a>Configure your Monitoring Platform
+
+Monitoring platforms support two types of monitoring:
+
+* A _dashboard_ for active monitoring when you are at a keyboard and screen
+* Automated _alerts_ for when your attention is elsewhere
+
+Some monitoring solutions offer both in one package. Others require putting the two pieces together.
+
+See the [Datadog Config repository](https://github.com/pivotal-cf-experimental/datadog-config-oss/blob/master/cloud-ops-example-doc.md) for an example of how to configure a dashboard and alerts for Cloud Foundry in Datadog.
+
+### <a id='dashboard'></a>Customize Your Dashboard
+
+You customize a dashboard by defining elements on the screen that show values derived from one or more metrics. These dashboard elements typically use simple formulas, such as averaging metric values over the past 60 seconds or summing them up over related instances. They are also often normalized to display with 3 or fewer digits for easy reading and color-coded red, yellow, or green to indicate health conditions.
+
+![Datadog dashboard](./metrics/dashboard.png)
+
+In Datadog, for example, you can define a `screen_template` query that watches the `auctioneer.AuctioneerLRPAuctionsFailed` metric and displays its current average over the past minute.
+
+### <a id='alerts'></a>Create Alerts
+
+You create alerts by defining boolean conditions based on operations over one or more metrics, and an action that the platform takes when an alert triggers. The booleans typically check whether metric values exceed or fall below thresholds, or compare metric values against each other.
+
+[In Datadog, for example,](https://github.com/pivotal-cf-experimental/datadog-config-oss/blob/master/alert_templates/shared/diego/LRPs_auction_failure_per_min_too_high.json.erb) you can define an `alert_template` condition that triggers when the `auctioneer.AuctioneerLRPAuctionsFailed` metric indicates an average of more than one failed auction per minute for the past 15 minutes:
+
+<pre><code>
+	{
+		"query": "min(last_15m):per_minute(avg:datadog.nozzle.auctioneer.AuctioneerLRPAuctionsFailed{deployment:&lt;%= metron_agent_diego_deployment %>}) > 1",
+		"message": "##Description:\nDiego internal metrics \n\n## Escalation Path:\nDiego \n\n## Possible Causes:\nThose alerts were a pretty strong signal for us to look at the BBS, which was locked up\n\n## Potential Solutions:\nEscalate to Diego team\n>&lt;%= cloudops_pagerduty %> &lt;%= diego_oncall %>",
+		"name": "&lt;%= environment %> Diego: LRP Auction Failure per min is too high",
+		"no_data_timeframe": 30,
+		"notify_no_data": false
+    }
+</code></pre>
+
+Actions that an alert triggers can include sending a pager or SMS message, sending an email, generating a support ticket, or passing the alert to a alerting system such as [PagerDuty](https://www.pagerduty.com/).
+
+## <a id='platforms'></a>Configure your Monitoring Platform
+
+Metrics monitoring platforms you can use with Cloud Foundry include:
+
+* [Datadog](https://www.datadoghq.com/)
+* [OpenTSDB](http://opentsdb.net/) alerts and [Grafana](http://grafana.org/) dashboard
 
 
